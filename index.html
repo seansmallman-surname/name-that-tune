@@ -548,31 +548,34 @@
       const y = years ? ' year:' + (years[0] === years[1] ? years[0] : years[0] + '-' + years[1]) : '';
       const genreQ = rest ? 'genre:"' + rest.replace(/"/g, '') + '"' + y : '';
 
+      // Songs that merely have the category's words in the title, or fall outside the decade, are noise.
+      const phrase = norm(rest).length >= 5 ? norm(rest) : '';
+      const fits = t => {
+        if (years) {
+          const yr = +(((t.album && t.album.release_date) || '').slice(0, 4));
+          if (!yr || yr < years[0] || yr > years[1]) return false;
+        }
+        return !(phrase && norm(t.name).includes(phrase));
+      };
+
       if (!rest && years && !forced) {
         await pull(y.trim());
       } else {
-        const [aj, gfirst] = await Promise.all([
-          forced === 'genre' ? null : api('GET', '/search?' + new URLSearchParams({ q: text, type: 'artist', limit: '5' })),
-          forced === 'artist' || !genreQ ? [] : searchTracks(genreQ, 0)
-        ]);
-        const artists = ((aj && aj.artists && aj.artists.items) || []).filter(Boolean);
-        const exact = artists.findIndex(a => norm(a.name) === norm(text));
-        const genreOk = gfirst.length >= 5;
-        let kind;
-        if (forced === 'artist') kind = artists.length ? 'artist' : 'keyword';
-        else if (forced === 'genre') kind = 'genre';
-        else kind = exact === 0 ? 'artist' : genreOk ? 'genre' : exact > 0 ? 'artist' : 'keyword';
-
-        if (kind === 'artist') {
-          const a = artists[exact >= 0 ? exact : 0];
-          await pull('artist:"' + a.name.replace(/"/g, '') + '"', t => (t.artists || []).some(x => x.id === a.id));
-        } else if (kind === 'genre') {
-          add(gfirst);
-          if (gfirst.length) await pull(genreQ, null, [10, 20, 30, 40]);
+        let artist = null;
+        if (forced !== 'genre') {
+          const aj = await api('GET', '/search?' + new URLSearchParams({ q: text, type: 'artist', limit: '5' }));
+          const artists = ((aj && aj.artists && aj.artists.items) || []).filter(Boolean);
+          if (forced === 'artist') artist = artists.find(a => norm(a.name) === norm(text)) || artists[0] || null;
+          else if (artists[0] && norm(artists[0].name) === norm(text)) artist = artists[0];
         }
-        if (seen.size < 12 && kind !== 'artist') {
-          await pull((rest || text) + y);
-          if (seen.size < 12 && (rest || text) + y !== text) await pull(text);
+        if (artist) {
+          await pull('artist:"' + artist.name.replace(/"/g, '') + '"', t => (t.artists || []).some(x => x.id === artist.id));
+        } else {
+          // Spotify's plain search understands phrases like "90s hip hop" better than its genre filter does.
+          if (forced === 'genre' && genreQ) await pull(genreQ, fits);
+          if (seen.size < 20) await pull(text, fits);
+          if (seen.size < 40 && years && rest) await pull(rest + y, fits, [0, 10, 20]);
+          if (seen.size < 12 && genreQ && forced !== 'genre') await pull(genreQ, fits);
         }
       }
     }
@@ -618,7 +621,7 @@
       o.value = d.id; o.textContent = d.name; o.selected = !!chosen && chosen.id === d.id;
       sel.appendChild(o);
     }
-    let hint = 'To play on your phone or a speaker, open Spotify on it and tap Refresh.';
+    let hint = list.length ? 'To play somewhere else, open Spotify on that phone, computer or speaker and tap Refresh.' : 'Open the Spotify app on your phone or computer, then tap Refresh.';
     if (sdk.problem) hint = sdk.problem + ' ' + hint;
     else if (isIOS && chosen && chosen.local) hint = 'Playing inside the browser can be unreliable on iPhone and iPad. If you hear nothing, open the Spotify app, tap Refresh and choose this phone.';
     $('deviceHint').textContent = hint;
@@ -872,10 +875,14 @@
     const r = game && game.round;
     if (!r) return;
     notice('');
-    const device = chosenDevice();
+    let device = chosenDevice();
     if (!device) {
-      notice('No Spotify device is ready. Open Spotify on your phone or computer, then tap the record.');
-      refreshDevices();
+      await refreshDevices(); // Spotify may have been opened since the last look
+      device = chosenDevice();
+      if (!game || game.round !== r) return;
+    }
+    if (!device) {
+      notice('No Spotify device is ready. Open the Spotify app on your phone or computer, come back here and tap the record.');
       return;
     }
     if (device.local && sdk.player && sdk.player.activateElement) { try { sdk.player.activateElement(); } catch {} }
