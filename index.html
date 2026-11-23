@@ -206,9 +206,9 @@
 
   <!-- First run: connect to Spotify -->
   <section id="setup" hidden>
-    <p>This game plays songs from your Spotify Premium account. Spotify asks every personal app to register once, which takes a few minutes.</p>
+    <p id="intro">This game plays songs from your Spotify Premium account. Spotify asks every personal app to register once, which takes a few minutes.</p>
     <p id="hostwarn" class="soft" hidden></p>
-    <ol class="steps">
+    <ol class="steps" id="steps">
       <li>Open <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>, log in with your Premium account and choose Create app. Any name and description will do.</li>
       <li>In the Redirect URIs box, add this exact address:
         <span class="uri" id="redirect"></span>
@@ -221,7 +221,7 @@
       </li>
     </ol>
     <button class="btn wide" id="connect" type="button">Connect Spotify</button>
-    <p class="soft" style="margin-top:14px">Only the account that created the app can log in. To let someone else use their own Spotify, add them under User Management in the dashboard.</p>
+    <p class="soft" id="ownernote" style="margin-top:14px">Only the account that created the app can log in. To let someone else use their own Spotify, add them under User Management in the dashboard.</p>
   </section>
 
   <!-- Home: pick a category -->
@@ -336,7 +336,9 @@
     del(k) { try { localStorage.removeItem('ntt_' + k); } catch {} }
   };
 
-  let clientId = store.get('client', '');
+  // Public ID of the registered Spotify app. It is not a secret: login uses PKCE and only works from this page's address.
+  const BUILT_IN_CLIENT = '4acfde4604814a20805a671125ee9760';
+  let clientId = store.get('client', '') || BUILT_IN_CLIENT;
   let tokens = store.get('tokens', null);
   let cats = store.get('cats', null) || DEFAULT_CATS.map(c => ({ label: c, query: c }));
   const savedSettings = store.get('settings', {});
@@ -658,6 +660,11 @@
   function showSetup() {
     $('redirect').textContent = REDIRECT;
     $('clientId').value = clientId;
+    if (BUILT_IN_CLIENT && clientId === BUILT_IN_CLIENT) {
+      $('steps').hidden = true;
+      $('intro').textContent = 'Connect your Spotify Premium account to start playing.';
+      $('ownernote').textContent = 'This game is registered to one Spotify account. Other people can only log in after the owner adds them in the Spotify developer dashboard.';
+    }
     const w = $('hostwarn');
     if (location.protocol === 'file:') {
       w.textContent = 'You opened this file straight from your computer. Spotify login only works when the page is on the web at an https address, so put the file on a web host first and open it from there.';
